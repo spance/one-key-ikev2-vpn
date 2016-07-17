@@ -10,7 +10,7 @@ vpn_user="user1"
 vpn_pass=`head -c 6 /dev/urandom | base64 | head -c 6`
 my_psk=`head -c 6 /dev/urandom | base64 | head -c 6`
 
-target_strongswan="strongswan-5.4.0"
+target_strongswan="strongswan-5.5.0"
 
 
 function printline() {
@@ -172,7 +172,7 @@ function generate_keys(){
 	else
 		echo -e "ca.pem [\033[32;1mauto create\033[0m]"
 		echo "auto create ca.pem ..."
-		ipsec pki --gen --type ecdsa --size 256 --outform pem > ca.pem
+		ipsec pki --gen --type rsa --size 2048 --outform pem > ca.pem
 	fi
 	
 	if [ -f ca.cert.pem ];then
@@ -180,7 +180,7 @@ function generate_keys(){
 	else
 		echo -e "ca.cert.pem [\033[33;1mauto create\033[0m]"
 		echo "auto create ca.cert.pem ..."
-		ipsec pki --self --in ca.pem --dn "C=${my_cert_c}, O=${my_cert_o}, CN=${my_cert_cn}" --ca --outform pem >ca.cert.pem
+		ipsec pki --self --in ca.pem --dn "C=${my_cert_c}, O=${my_cert_o}, CN=VPN CA" --ca --outform pem >ca.cert.pem
 	fi
 	if [ ! -d my_key ];then
 		mkdir my_key
@@ -215,36 +215,23 @@ function generate_keys(){
 # must use space as indent symbol
 function configure_ipsec(){
 	cat > /usr/local/etc/ipsec.conf<<-EOF
-config setup
-    uniqueids=never 
-
-conn android_xauth_psk
-    keyexchange=ikev1
-    left=%defaultroute
-    leftauth=psk
-    leftsubnet=0.0.0.0/0
-    right=%any
-    rightauth=psk
-    rightauth2=xauth
-    rightsourceip=10.31.2.0/24
-    auto=add
-
 conn ios_ikev2
     keyexchange=ikev2
-    ike=aes256-sha2_256-ecp256, aes256-sha2_256-modp2048!
-    esp=aes256-sha1, aes128-sha1!
+    ike=aes256-sha2_256-modp2048,aes128-sha2_256-modp2048,aes128-sha1-modp2048! 
+    esp=aes256-sha2_256, aes128-sha2_256, aes128-sha1!
     rekey=no
-    left=%defaultroute
+    left=%any
     leftid=${my_ip}
     leftsendcert=always
     leftsubnet=0.0.0.0/0
     leftcert=server.cert.pem
     right=%any
     rightauth=eap-mschapv2
-    rightsourceip=10.31.2.0/24
+    rightsourceip=10.252.1.0/24
     rightsendcert=never
     eap_identity=%any
     dpdaction=clear
+    dpddelay=300s
     fragmentation=yes
     auto=add
 
@@ -305,13 +292,11 @@ function set_iptables(){
 	fi
 
 	if [ "$use_SNAT_str" = "1" ]; then
-		iptables -t nat -A POSTROUTING -s 10.31.0.0/24 -o $interface -j SNAT --to-source $static_ip
-		iptables -t nat -A POSTROUTING -s 10.31.1.0/24 -o $interface -j SNAT --to-source $static_ip
-		iptables -t nat -A POSTROUTING -s 10.31.2.0/24 -o $interface -j SNAT --to-source $static_ip
+		iptables -t nat -A POSTROUTING -s 10.252.0.0/24 -o $interface -j SNAT --to-source $static_ip
+		iptables -t nat -A POSTROUTING -s 10.252.1.0/24 -o $interface -j SNAT --to-source $static_ip
 	else
-		iptables -t nat -A POSTROUTING -s 10.31.0.0/24 -o $interface -j MASQUERADE
-		iptables -t nat -A POSTROUTING -s 10.31.1.0/24 -o $interface -j MASQUERADE
-		iptables -t nat -A POSTROUTING -s 10.31.2.0/24 -o $interface -j MASQUERADE
+		iptables -t nat -A POSTROUTING -s 10.252.0.0/24 -o $interface -j MASQUERADE
+		iptables -t nat -A POSTROUTING -s 10.252.1.0/24 -o $interface -j MASQUERADE
 	fi
 }
 
